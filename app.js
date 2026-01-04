@@ -1,0 +1,587 @@
+// ===== GLOBAL STATE =====
+let dictionary = new Map();
+let currentText = '';
+let wordPositions = [];
+let currentWordIndex = null;
+let currentSelection = null;
+
+// ===== DICTIONARY LOADING =====
+async function loadDictionary() {
+  const response = await fetch('vnedict.txt');
+  const content = await response.text();
+
+  const lines = content.split('\n');
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+
+    const colonIndex = trimmed.indexOf(':');
+    if (colonIndex === -1) continue;
+
+    const term = trimmed.substring(0, colonIndex).trim().toLowerCase();
+    const definition = trimmed.substring(colonIndex + 1).trim();
+    dictionary.set(term, definition);
+  }
+}
+
+// ===== DICTIONARY LOOKUP =====
+function findLongestMatchStartingWith(text, startIndex) {
+  const remainingText = text.substring(startIndex);
+
+  // Match a sequence of words separated by spaces
+  const match = remainingText.match(/^[a-zA-ZÀ-ỹ]+(?: +[a-zA-ZÀ-ỹ]+)*/);
+  if (!match) return null;
+
+  const sequence = match[0];
+  const words = sequence.split(/ +/);
+
+  // Try matches from longest to shortest (up to 10 words)
+  const maxWords = Math.min(words.length, 10);
+  for (let i = maxWords; i >= 1; i--) {
+    const phrase = words.slice(0, i).join(' ').toLowerCase();
+    const definition = dictionary.get(phrase);
+    if (definition) {
+      return { word: phrase, definition };
+    }
+  }
+  return null;
+}
+
+function findLongestMatchEndingWith(text, endIndex) {
+  const textBefore = text.substring(0, endIndex);
+
+  // Match a sequence of words separated by spaces, ending at endIndex
+  const match = textBefore.match(/[a-zA-ZÀ-ỹ]+(?: +[a-zA-ZÀ-ỹ]+)*$/);
+  if (!match) return null;
+
+  const sequence = match[0];
+  const words = sequence.split(/ +/);
+
+  // Try matches from longest to shortest (up to 10 words)
+  const maxWords = Math.min(words.length, 10);
+  for (let i = maxWords; i >= 1; i--) {
+    const phrase = words.slice(-i).join(' ').toLowerCase();
+    const definition = dictionary.get(phrase);
+    if (definition) {
+      return { word: phrase, definition };
+    }
+  }
+  return null;
+}
+
+// ===== CLIPBOARD READING =====
+async function readClipboard() {
+  console.log('Reading clipboard…');
+  try {
+    // Add timeout to prevent hanging indefinitely
+    const clipboardPromise = navigator.clipboard.readText();
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Clipboard read timeout')), 2000)
+    );
+
+    const clipboardText = await Promise.race([clipboardPromise, timeoutPromise]);
+    console.log('Clipboard text:', clipboardText?.substring(0, 50) + '…');
+    if (clipboardText) {
+      currentText = clipboardText;
+      updateWordPositions();
+      render();
+    }
+  } catch (err) {
+    console.error('Failed to read clipboard:', err);
+    // Will fail if permission not granted or on timeout
+  }
+}
+
+// ===== WORD POSITION CALCULATION =====
+function updateWordPositions() {
+  wordPositions = [];
+  // Match all sequences of alphabetic characters (including Vietnamese)
+  const regex = /[a-zA-ZÀ-ỹ]+/g;
+  let match;
+
+  while ((match = regex.exec(currentText)) !== null) {
+    wordPositions.push({
+      word: match[0],
+      startIndex: match.index,
+      endIndex: match.index + match[0].length,
+    });
+  }
+
+  currentWordIndex = null;
+  currentSelection = null;
+}
+
+// ===== SELECTION LOGIC =====
+function updateSelection(direction) {
+  if (wordPositions.length === 0 || !currentText) {
+    currentSelection = null;
+    return;
+  }
+
+  const wordPos = wordPositions[currentWordIndex];
+  if (!wordPos) {
+    currentSelection = null;
+    return;
+  }
+
+  let match;
+  let startIndex;
+
+  if (direction === 'right') {
+    match = findLongestMatchStartingWith(currentText, wordPos.startIndex);
+    if (match) {
+      startIndex = wordPos.startIndex;
+    }
+  } else if (direction === 'left') {
+    match = findLongestMatchEndingWith(currentText, wordPos.endIndex);
+    if (match) {
+      // Search backwards to find where the match actually starts in the original text
+      // We need to account for stripped punctuation
+      const wordsInMatch = match.word.split(/\s+/);
+
+      // Find the actual start by searching for the match pattern
+      let searchPos = wordPos.endIndex;
+      for (let i = wordsInMatch.length - 1; i >= 0; i--) {
+        const word = wordsInMatch[i];
+        // Search backwards for this word (case-insensitive)
+        const searchText = currentText.substring(0, searchPos).toLowerCase();
+        const wordIndex = searchText.lastIndexOf(word);
+        if (wordIndex !== -1) {
+          if (i === 0) {
+            startIndex = wordIndex;
+          }
+          searchPos = wordIndex;
+        }
+      }
+    }
+  }
+
+  if (match) {
+    currentSelection = {
+      word: match.word,
+      definition: match.definition,
+      startIndex: startIndex,
+      endIndex: startIndex + match.word.length,
+    };
+  } else {
+    const noMatches = findConsecutiveWordsWithNoMatch(currentWordIndex, direction);
+    currentSelection = {
+      word: noMatches.text,
+      definition: null,
+      startIndex: noMatches.startIndex,
+      endIndex: noMatches.endIndex,
+    };
+  }
+}
+
+/**
+ * Finds all consecutive words without dictionary entries, starting from the given word index.
+ * Scans in the specified direction until hitting a word with a valid dictionary entry.
+ *
+ * @param {number} startWordIndex - Index in wordPositions array to start from
+ * @param {string} direction - Either 'right' (forward) or 'left' (backward)
+ * @returns {Object} Object containing:
+ *   - text: The actual substring from currentText (preserving punctuation/spacing)
+ *   - startIndex: Character position where the sequence starts
+ *   - endIndex: Character position where the sequence ends
+ */
+function findConsecutiveWordsWithNoMatch(startWordIndex, direction) {
+  let startIndex, endIndex;
+
+  if (direction === 'right') {
+    startIndex = wordPositions[startWordIndex].startIndex;
+    for (let i = startWordIndex; i < wordPositions.length; i++) {
+      const wordPos = wordPositions[i];
+
+      // Stop at match
+      if (findLongestMatchStartingWith(currentText, wordPos.startIndex)) {
+        break;
+      }
+
+      endIndex = wordPos.endIndex;
+    }
+  } else if (direction === 'left') {
+    endIndex = wordPositions[startWordIndex].endIndex;
+    for (let i = startWordIndex; i >= 0; i--) {
+      const wordPos = wordPositions[i];
+
+      // Stop at match
+      if (findLongestMatchEndingWith(currentText, wordPos.endIndex)) {
+        break;
+      }
+
+      startIndex = wordPos.startIndex;
+    }
+  }
+
+  return {
+    text: currentText.substring(startIndex, endIndex),
+    startIndex: startIndex,
+    endIndex: endIndex,
+  };
+}
+
+// ===== RENDERING =====
+function render() {
+  const textDisplay = document.getElementById('text-display');
+  const tooltip = document.getElementById('tooltip');
+
+  // Render text with highlight
+  if (!currentText) {
+    textDisplay.textContent = '';
+    tooltip.classList.add('hidden');
+    return;
+  }
+
+  if (currentSelection) {
+    const before = currentText.substring(0, currentSelection.startIndex);
+    const highlighted = currentText.substring(currentSelection.startIndex, currentSelection.endIndex);
+    const after = currentText.substring(currentSelection.endIndex);
+
+    textDisplay.innerHTML =
+      escapeHtml(before) +
+      '<span class="highlight">' + escapeHtml(highlighted) + '</span>' +
+      escapeHtml(after);
+
+    const definition = currentSelection.definition
+      ? escapeHtml(currentSelection.definition)
+      : '<em>no definition</em>';
+    tooltip.innerHTML =
+      '<div class="word">' + escapeHtml(currentSelection.word) + '</div>' +
+      '<div>' + definition + '</div>';
+    tooltip.classList.remove('hidden');
+  } else {
+    textDisplay.textContent = currentText;
+    tooltip.classList.add('hidden');
+  }
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+// Helper function to get text offset in the element
+function getTextOffsetFromPoint(element, x, y) {
+  let charIndex = 0;
+  let clickedNode = null;
+  let clickedOffset = 0;
+
+  if (document.caretPositionFromPoint) {
+    // Firefox
+    const position = document.caretPositionFromPoint(x, y);
+    if (position) {
+      clickedNode = position.offsetNode;
+      clickedOffset = position.offset;
+    }
+  } else if (document.caretRangeFromPoint) {
+    // Chrome/Safari
+    const range = document.caretRangeFromPoint(x, y);
+    if (range) {
+      clickedNode = range.startContainer;
+      clickedOffset = range.startOffset;
+    }
+  }
+
+  if (!clickedNode) return 0;
+
+  // Walk the DOM tree and count characters until we reach the clicked node
+  function walkTree(node) {
+    if (node === clickedNode) {
+      charIndex += clickedOffset;
+      return true; // Found it
+    }
+
+    if (node.nodeType === Node.TEXT_NODE) {
+      charIndex += node.textContent.length;
+    } else if (node.nodeType === Node.ELEMENT_NODE) {
+      for (let child of node.childNodes) {
+        if (walkTree(child)) return true;
+      }
+    }
+
+    return false;
+  }
+
+  walkTree(element);
+  return charIndex;
+}
+
+// ===== EVENT HANDLERS =====
+function handleTextClick(event) {
+  if (!currentText) return;
+
+  const textDisplay = document.getElementById('text-display');
+
+  // If click is outside text-display, clear selection
+  if (!textDisplay.contains(event.target) && event.target !== textDisplay) {
+    currentSelection = null;
+    currentWordIndex = null;
+    render();
+    return;
+  }
+
+  // Use browser API to find the exact character position from click coordinates
+  const charIndex = getTextOffsetFromPoint(textDisplay, event.clientX, event.clientY);
+
+  // Find word boundaries (alphabetic characters only)
+  let wordStart = charIndex;
+  while (wordStart > 0 && /[a-zA-ZÀ-ỹ]/.test(currentText[wordStart - 1])) {
+    wordStart--;
+  }
+
+  let wordEnd = charIndex;
+  while (wordEnd < currentText.length && /[a-zA-ZÀ-ỹ]/.test(currentText[wordEnd])) {
+    wordEnd++;
+  }
+
+  // If no word was found (clicked on whitespace), clear selection
+  if (wordStart === wordEnd) {
+    currentSelection = null;
+    currentWordIndex = null;
+    render();
+    return;
+  }
+
+  // Try both directions and pick the longest match
+  const matchStarting = findLongestMatchStartingWith(currentText, wordStart);
+  const matchEnding = findLongestMatchEndingWith(currentText, wordEnd);
+
+  let match = null;
+  let startIndex = wordStart;
+
+  if (matchStarting && matchEnding) {
+    // Pick whichever match is longer (more words)
+    const startingWordCount = matchStarting.word.split(/\s+/).length;
+    const endingWordCount = matchEnding.word.split(/\s+/).length;
+
+    if (endingWordCount > startingWordCount) {
+      match = matchEnding;
+      startIndex = wordEnd - matchEnding.word.length;
+    } else {
+      match = matchStarting;
+      startIndex = wordStart;
+    }
+  } else if (matchStarting) {
+    match = matchStarting;
+    startIndex = wordStart;
+  } else if (matchEnding) {
+    match = matchEnding;
+    startIndex = wordEnd - matchEnding.word.length;
+  }
+
+  if (match) {
+    currentSelection = {
+      word: match.word,
+      definition: match.definition,
+      startIndex: startIndex,
+      endIndex: startIndex + match.word.length,
+    };
+
+    // Update currentWordIndex to match this selection
+    const matchingIndex = wordPositions.findIndex(wp => wp.startIndex === startIndex);
+    if (matchingIndex !== -1) {
+      currentWordIndex = matchingIndex;
+    }
+  } else {
+    const clickedWordIndex = wordPositions.findIndex(wp => wp.startIndex === wordStart);
+    if (clickedWordIndex !== -1) {
+      currentWordIndex = clickedWordIndex;
+      const noMatches = findConsecutiveWordsWithNoMatch(clickedWordIndex, 'right');
+      currentSelection = {
+        word: noMatches.text,
+        definition: null,
+        startIndex: noMatches.startIndex,
+        endIndex: noMatches.endIndex,
+      };
+    } else {
+      // Fallback to just the clicked word if not found in wordPositions
+      const clickedWord = currentText.substring(wordStart, wordEnd);
+      currentSelection = {
+        word: clickedWord,
+        definition: null,
+        startIndex: wordStart,
+        endIndex: wordEnd,
+      };
+    }
+  }
+
+  console.log(`Clicked on "${currentSelection.word}"`);
+  render();
+}
+
+function handleNavigateWithin(direction) {
+  if (wordPositions.length === 0) return;
+
+  // Initialize to first word if nothing selected
+  let wasNull = false;
+  if (currentWordIndex === null) {
+    wasNull = true;
+    currentWordIndex = 0;
+  }
+
+  const oldWordIndex = currentWordIndex;
+
+  // Only navigate if we weren't starting from null
+  if (!wasNull) {
+    // Check if current selection is multi-word
+    const isMultiWord = currentSelection && currentSelection.word.split(/\s+/).length > 1;
+
+    // For multi-word selections at boundaries, stay at current position
+    // Otherwise move to adjacent word
+    const shouldStayAtCurrentPosition = isMultiWord && (
+      (direction === 'left' && currentSelection.startIndex === wordPositions[currentWordIndex].startIndex) ||
+      (direction === 'right' && currentSelection.endIndex === wordPositions[currentWordIndex].endIndex)
+    );
+
+    if (!shouldStayAtCurrentPosition) {
+      if (direction === 'right') {
+        if (currentWordIndex < wordPositions.length - 1) {
+          currentWordIndex = currentWordIndex + 1;
+        }
+      } else if (direction === 'left') {
+        if (currentWordIndex > 0) {
+          currentWordIndex = currentWordIndex - 1;
+        }
+      }
+    }
+  }
+
+  updateSelection(direction);
+  console.log(`Navigating within from ${oldWordIndex} to ${currentWordIndex}.`);
+  render();
+}
+
+function handleNavigate(direction) {
+  if (wordPositions.length === 0) return;
+
+  // Initialize to first word if nothing selected
+  let wasNull = false;
+  if (currentWordIndex === null) {
+    wasNull = true;
+    currentWordIndex = 0;
+  }
+
+  const oldWordIndex = currentWordIndex;
+
+  // Only navigate if we weren't starting from null
+  if (!wasNull) {
+    // Check if current selection is multi-word
+    const isMultiWord = currentSelection && currentSelection.word.split(/\s+/).length > 1;
+
+    if (!isMultiWord) {
+      // Single word or no selection - use simple increment
+      if (direction === 'right') {
+        if (currentWordIndex < wordPositions.length - 1) {
+          currentWordIndex = currentWordIndex + 1;
+        }
+      } else if (direction === 'left') {
+        if (currentWordIndex > 0) {
+          currentWordIndex = currentWordIndex - 1;
+        }
+      }
+    } else {
+      // Multi-word selection - skip to next word outside selection
+      if (direction === 'right') {
+        // Find first word that starts after current selection ends
+        for (let i = currentWordIndex + 1; i < wordPositions.length; i++) {
+          if (wordPositions[i].startIndex >= currentSelection.endIndex) {
+            currentWordIndex = i;
+            break;
+          }
+        }
+      } else if (direction === 'left') {
+        // Find last word that ends before current selection starts
+        for (let i = currentWordIndex - 1; i >= 0; i--) {
+          if (wordPositions[i].endIndex <= currentSelection.startIndex) {
+            currentWordIndex = i;
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  updateSelection(direction);
+
+  // After finding the selection, align currentWordIndex to the start of the matched phrase
+  if (currentSelection) {
+    const matchingIndex = wordPositions.findIndex(wp => wp.startIndex === currentSelection.startIndex);
+    if (matchingIndex !== -1) {
+      currentWordIndex = matchingIndex;
+    }
+  }
+
+  console.log(`Navigating from ${oldWordIndex} to ${currentWordIndex}.`);
+  render();
+}
+
+function handleKeyDown(event) {
+  if (event.key === 'ArrowLeft') {
+    event.preventDefault();
+    if (event.altKey) {
+      handleNavigateWithin('left');
+    } else {
+      handleNavigate('left');
+    }
+  } else if (event.key === 'ArrowRight') {
+    event.preventDefault();
+    if (event.altKey) {
+      handleNavigateWithin('right');
+    } else {
+      handleNavigate('right');
+    }
+  }
+}
+
+function handlePaste(event) {
+  console.log('Pasting text…');
+  const pastedText = event.clipboardData.getData('text');
+  if (pastedText) {
+    console.log('Pasted text: "', pastedText.substring(0, 50) + '"…');
+    currentText = pastedText;
+    updateWordPositions();
+    render();
+    // Clear the input field
+    event.target.value = '';
+  }
+}
+
+// ===== INITIALIZATION =====
+async function init() {
+  console.log('Initializing app…');
+  try {
+    await loadDictionary();
+    console.log('Dictionary loaded successfully.');
+
+    // Set up event listeners
+    console.log('Setting up event listeners…');
+    document.getElementById('paste-input').addEventListener('paste', handlePaste);
+    document.getElementById('load-button').addEventListener('click', readClipboard);
+    document.getElementById('reader').addEventListener('click', handleTextClick);
+    document.getElementById('nav-left').addEventListener('click', () => handleNavigate('left'));
+    document.getElementById('nav-right').addEventListener('click', () => handleNavigate('right'));
+    document.getElementById('nav-within-left').addEventListener('click', () => handleNavigateWithin('left'));
+    document.getElementById('nav-within-right').addEventListener('click', () => handleNavigateWithin('right'));
+    window.addEventListener('keydown', handleKeyDown);
+    console.log('Event listeners set up.');
+
+    // Show app, hide loading
+    document.getElementById('loading').classList.add('hidden');
+    document.getElementById('app').classList.remove('hidden');
+    console.log('App initialized successfully.');
+  } catch (err) {
+    console.error('Initialization error:', err);
+    document.getElementById('loading').classList.add('hidden');
+    document.getElementById('error').textContent = 'Error: ' + err.message;
+    document.getElementById('error').classList.remove('hidden');
+  }
+}
+
+// Start when DOM is ready
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', init);
+} else {
+  init();
+}
