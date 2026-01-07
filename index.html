@@ -7,14 +7,17 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <div id="loading">Loading dictionary...</div>
+  <div id="loading">Loading...</div>
 
   <div id="error" class="hidden"></div>
 
   <div id="app" class="hidden">
     <div id="top-bar">
-      <button id="load-button">Load clipboard</button>
-      <input type="text" id="paste-input" placeholder="or paste here" />
+      <div>
+        <button id="load-button">Load clipboard</button>
+        <input type="text" id="paste-input" placeholder="or paste here" />
+      </div>
+      <button id="toggle-chinese">中</button>
     </div>
 
     <div id="reader">

@@ -46,3 +46,4 @@ Inspired by [Pleco](https://www.pleco.com)'s clipboard reader.
 ## File reference
 
 - vnedict.txt: [VNEDICT Vietnamese-English Dictionary (utf-8 text file)](http://www.denisowski.org/Vietnamese/vnedict.txt)
+- vi2zhwikitxt.txt: [Vietnamese to Mandarin dictionary - vi2zhwikitxt.txt](https://github.com/Trannosaur/published_dicts#vietnamese-to-mandarin-dictionary---vi2zhwikitxttxt)

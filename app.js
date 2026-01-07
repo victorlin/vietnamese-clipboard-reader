@@ -1,15 +1,14 @@
 // ===== GLOBAL STATE =====
-let dictionary = new Map();
+let englishDictionary = new Map();
+let chineseDictionary = new Map();
+let chineseEnabled = false;
 let currentText = '';
 let wordPositions = [];
 let currentWordIndex = null;
 let currentSelection = null;
 
 // ===== DICTIONARY LOADING =====
-async function loadDictionary() {
-  const response = await fetch('vnedict.txt');
-  const content = await response.text();
-
+function parseDictionary(content, targetMap) {
   const lines = content.split('\n');
   for (const line of lines) {
     const trimmed = line.trim();
@@ -20,8 +19,22 @@ async function loadDictionary() {
 
     const term = trimmed.substring(0, colonIndex).trim().toLowerCase();
     const definition = trimmed.substring(colonIndex + 1).trim();
-    dictionary.set(term, definition);
+    targetMap.set(term, definition);
   }
+}
+
+async function loadDictionaries() {
+  // Load both dictionaries in parallel
+  const [enDictFetch, zhDictFetch] = await Promise.all([
+    fetch('vnedict.txt'),
+    fetch('zh/dict.txt')
+  ]);
+
+  const enDictText = await enDictFetch.text();
+  const zhDictText = await zhDictFetch.text();
+
+  parseDictionary(enDictText, englishDictionary);
+  parseDictionary(zhDictText, chineseDictionary);
 }
 
 // ===== DICTIONARY LOOKUP =====
@@ -39,7 +52,7 @@ function findLongestMatchStartingWith(text, startIndex) {
   const maxWords = Math.min(words.length, 10);
   for (let i = maxWords; i >= 1; i--) {
     const phrase = words.slice(0, i).join(' ').toLowerCase();
-    const definition = dictionary.get(phrase);
+    const definition = englishDictionary.get(phrase);
     if (definition) {
       return { word: phrase, definition };
     }
@@ -61,7 +74,7 @@ function findLongestMatchEndingWith(text, endIndex) {
   const maxWords = Math.min(words.length, 10);
   for (let i = maxWords; i >= 1; i--) {
     const phrase = words.slice(-i).join(' ').toLowerCase();
-    const definition = dictionary.get(phrase);
+    const definition = englishDictionary.get(phrase);
     if (definition) {
       return { word: phrase, definition };
     }
@@ -243,12 +256,18 @@ function render() {
       '<span class="highlight">' + escapeHtml(highlighted) + '</span>' +
       escapeHtml(after);
 
-    const definition = currentSelection.definition
+    const englishDefinition = currentSelection.definition
       ? escapeHtml(currentSelection.definition)
       : '<em>no definition</em>';
+
+    // Check for Chinese dictionary entry (exact match only)
+    const chineseDefinition = chineseEnabled ? chineseDictionary.get(currentSelection.word.toLowerCase()) : null;
+
     tooltip.innerHTML =
       '<div class="word">' + escapeHtml(currentSelection.word) + '</div>' +
-      '<div>' + definition + '</div>';
+      '<div>' + englishDefinition + '</div>' +
+      (chineseDefinition ? '<div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border-color-light);">' +
+        escapeHtml(chineseDefinition) + '</div>' : '');
     tooltip.classList.remove('hidden');
   } else {
     textDisplay.textContent = currentText;
@@ -548,12 +567,23 @@ function handlePaste(event) {
   }
 }
 
+function handleToggleChinese() {
+  chineseEnabled = !chineseEnabled;
+  updateToggleButton();
+  render();
+}
+
+function updateToggleButton() {
+  const button = document.getElementById('toggle-chinese');
+  button.classList.toggle('inactive', !chineseEnabled);
+}
+
 // ===== INITIALIZATION =====
 async function init() {
   console.log('Initializing app…');
   try {
-    await loadDictionary();
-    console.log('Dictionary loaded successfully.');
+    await loadDictionaries();
+    console.log('Dictionaries loaded successfully.');
 
     // Set up event listeners
     console.log('Setting up event listeners…');
@@ -564,8 +594,12 @@ async function init() {
     document.getElementById('nav-right').addEventListener('click', () => handleNavigate('right'));
     document.getElementById('nav-within-left').addEventListener('click', () => handleNavigateWithin('left'));
     document.getElementById('nav-within-right').addEventListener('click', () => handleNavigateWithin('right'));
+    document.getElementById('toggle-chinese').addEventListener('click', handleToggleChinese);
     window.addEventListener('keydown', handleKeyDown);
     console.log('Event listeners set up.');
+
+    // Set initial toggle button state
+    updateToggleButton();
 
     // Show app, hide loading
     document.getElementById('loading').classList.add('hidden');
