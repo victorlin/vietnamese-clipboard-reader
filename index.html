@@ -13,6 +13,7 @@
 
   <div id="app" class="hidden">
     <div id="top-bar">
+      <button id="help-button">?</button>
       <div>
         <button id="load-button">Load clipboard</button>
         <input type="text" id="paste-input" placeholder="or paste here" />
@@ -21,6 +22,26 @@
     </div>
 
     <div id="reader">
+      <div id="help-content" class="hidden">
+        <h1><a href="https://github.com/victorlin/vietnamese-clipboard-reader">Vietnamese Clipboard Reader</a></h1>
+
+        <p>
+          A language learning tool inspired by <a href="https://www.pleco.com">Pleco</a>.
+          Dictionary data from <a href="http://www.denisowski.org/Vietnamese/vnedict_readme.htm">VNEDICT</a>
+          and <a href="https://github.com/Trannosaur/published_dicts#vietnamese-to-mandarin-dictionary---vi2zhwikitxttxt">Wiktionary</a>.
+        </p>
+
+        <h2>Instructions</h2>
+        <ol>
+          <li>Load/paste clipboard above.</li>
+          <li>Select a word to show the definition.</li>
+          <li>Use ← / → to move left/right.</li>
+          <li>Use − / + to shrink/grow the selection.</li>
+          <li>中 for Chinese definitions.</li>
+        </ol>
+
+        <h2 id="help-text-header"></h2>
+      </div>
       <div id="text-display"></div>
       <div id="tooltip" class="hidden"></div>
     </div>

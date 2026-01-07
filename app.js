@@ -2,6 +2,7 @@
 let englishDictionary = new Map();
 let chineseDictionary = new Map();
 let chineseEnabled = false;
+let showHelp = false;
 let currentText = '';
 let wordPositions = [];
 let currentWordIndex = null;
@@ -95,6 +96,10 @@ async function readClipboard() {
     const clipboardText = await Promise.race([clipboardPromise, timeoutPromise]);
     console.log('Clipboard text:', clipboardText?.substring(0, 50) + '…');
     if (clipboardText) {
+      if (showHelp) {
+        document.getElementById('help-text-header').textContent = 'Your clipboard';
+      }
+
       currentText = clipboardText;
       updateWordPositions();
       render();
@@ -578,6 +583,11 @@ function handlePaste(event) {
   const pastedText = event.clipboardData.getData('text');
   if (pastedText) {
     console.log('Pasted text: "', pastedText.substring(0, 50) + '"…');
+
+    if (showHelp) {
+      document.getElementById('help-text-header').textContent = 'Your clipboard';
+    }
+
     currentText = pastedText;
     updateWordPositions();
     render();
@@ -597,6 +607,37 @@ function updateToggleButton() {
   button.classList.toggle('inactive', !chineseEnabled);
 }
 
+function handleToggleHelp() {
+  const tooltip = document.getElementById('tooltip');
+  const helpContent = document.getElementById('help-content');
+  const helpTextHeader = document.getElementById('help-text-header');
+  const exampleText = 'Người ta tạo ra vận mệnh chứ không phải vận mệnh tạo ra con người.';
+
+  // Toggle help
+  showHelp = !showHelp;
+  helpContent.classList.toggle('hidden');
+
+  // Hide tooltip
+  tooltip.classList.add('hidden');
+
+  if (showHelp) {
+    if (!currentText) {
+      currentText = exampleText;
+      updateWordPositions();
+      render();
+      helpTextHeader.textContent = 'Example';
+    } else {
+      helpTextHeader.textContent = 'Your clipboard';
+    }
+  } else {
+    if (currentText === exampleText) {
+      currentText = '';
+      updateWordPositions();
+      render();
+    }
+  }
+}
+
 // ===== INITIALIZATION =====
 async function init() {
   console.log('Initializing app…');
@@ -614,6 +655,7 @@ async function init() {
     document.getElementById('nav-within-left').addEventListener('click', () => handleResizeSelection('left'));
     document.getElementById('nav-within-right').addEventListener('click', () => handleResizeSelection('right'));
     document.getElementById('toggle-chinese').addEventListener('click', handleToggleChinese);
+    document.getElementById('help-button').addEventListener('click', handleToggleHelp);
     window.addEventListener('keydown', handleKeyDown);
     console.log('Event listeners set up.');
 
