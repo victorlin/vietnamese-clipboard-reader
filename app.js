@@ -443,45 +443,51 @@ function handleTextClick(event) {
   render();
 }
 
-function handleNavigateWithin(direction) {
+function handleResizeSelection(direction) {
   if (wordPositions.length === 0) return;
 
   // Initialize to first word if nothing selected
-  let wasNull = false;
   if (currentWordIndex === null) {
-    wasNull = true;
     currentWordIndex = 0;
+    updateSelection('right');
+    render();
+    return;
   }
 
-  const oldWordIndex = currentWordIndex;
+  if (!currentSelection) return;
 
-  // Only navigate if we weren't starting from null
-  if (!wasNull) {
-    // Check if current selection is multi-word
-    const isMultiWord = currentSelection && currentSelection.word.split(/\s+/).length > 1;
+  let newStartIndex = currentSelection.startIndex;
+  let newEndIndex = currentSelection.endIndex;
 
-    // For multi-word selections at boundaries, stay at current position
-    // Otherwise move to adjacent word
-    const shouldStayAtCurrentPosition = isMultiWord && (
-      (direction === 'left' && currentSelection.startIndex === wordPositions[currentWordIndex].startIndex) ||
-      (direction === 'right' && currentSelection.endIndex === wordPositions[currentWordIndex].endIndex)
+  if (direction === 'right') {
+    // Increase by 1 word
+    const nextWord = wordPositions.find(wp => wp.startIndex >= currentSelection.endIndex);
+    if (nextWord) {
+      newEndIndex = nextWord.endIndex;
+    }
+  } else if (direction === 'left') {
+    // Decrease by 1 word
+    const wordsInSelection = wordPositions.filter(
+      wp => wp.startIndex >= currentSelection.startIndex && wp.endIndex <= currentSelection.endIndex
     );
 
-    if (!shouldStayAtCurrentPosition) {
-      if (direction === 'right') {
-        if (currentWordIndex < wordPositions.length - 1) {
-          currentWordIndex = currentWordIndex + 1;
-        }
-      } else if (direction === 'left') {
-        if (currentWordIndex > 0) {
-          currentWordIndex = currentWordIndex - 1;
-        }
-      }
+    if (wordsInSelection.length > 1) {
+      newEndIndex = wordsInSelection[wordsInSelection.length - 2].endIndex;
     }
   }
 
-  updateSelection(direction);
-  console.log(`Navigating within from ${oldWordIndex} to ${currentWordIndex}.`);
+  const selectedText = currentText.substring(newStartIndex, newEndIndex);
+  const phrase = selectedText.split(/[^a-zA-ZÀ-ỹ]+/).filter(w => w).join(' ').toLowerCase();
+  const definition = englishDictionary.get(phrase);
+
+  currentSelection = {
+    word: phrase,
+    definition: definition || null,
+    startIndex: newStartIndex,
+    endIndex: newEndIndex,
+  };
+
+  console.log(`Resized selection to "${phrase}" (${direction})`);
   render();
 }
 
@@ -553,14 +559,14 @@ function handleKeyDown(event) {
   if (event.key === 'ArrowLeft') {
     event.preventDefault();
     if (event.altKey) {
-      handleNavigateWithin('left');
+      handleResizeSelection('left');
     } else {
       handleNavigate('left');
     }
   } else if (event.key === 'ArrowRight') {
     event.preventDefault();
     if (event.altKey) {
-      handleNavigateWithin('right');
+      handleResizeSelection('right');
     } else {
       handleNavigate('right');
     }
@@ -605,8 +611,8 @@ async function init() {
     document.getElementById('reader').addEventListener('click', handleTextClick);
     document.getElementById('nav-left').addEventListener('click', () => handleNavigate('left'));
     document.getElementById('nav-right').addEventListener('click', () => handleNavigate('right'));
-    document.getElementById('nav-within-left').addEventListener('click', () => handleNavigateWithin('left'));
-    document.getElementById('nav-within-right').addEventListener('click', () => handleNavigateWithin('right'));
+    document.getElementById('nav-within-left').addEventListener('click', () => handleResizeSelection('left'));
+    document.getElementById('nav-within-right').addEventListener('click', () => handleResizeSelection('right'));
     document.getElementById('toggle-chinese').addEventListener('click', handleToggleChinese);
     window.addEventListener('keydown', handleKeyDown);
     console.log('Event listeners set up.');

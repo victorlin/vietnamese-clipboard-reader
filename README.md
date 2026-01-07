@@ -31,12 +31,12 @@ Inspired by [Pleco](https://www.pleco.com)'s clipboard reader.
 - Navigating left finds the longest dictionary entry ending with the word.
 - 4 navigation buttons:
     - `←`/`→`: For multi-word selections, jump over the entire phrase to the next/previous word
-    - `⇤`/`⇥`: Move through words one at a time, even within multi-word selections
+    - `−`/`+`: Decrease/increase the current selection by one word
 
 ### Keyboard shortcuts
 
 - `←`/`→`: arrow keys
-- `⇤`/`⇥`: option + arrow keys
+- `−`/`+`: option + arrow keys
 
 ## Technical specifications
 
