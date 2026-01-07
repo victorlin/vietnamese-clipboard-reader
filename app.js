@@ -269,6 +269,19 @@ function render() {
       (chineseDefinition ? '<div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border-color-light);">' +
         escapeHtml(chineseDefinition) + '</div>' : '');
     tooltip.classList.remove('hidden');
+
+    // Position tooltip below the highlighted text
+    requestAnimationFrame(() => {
+      const highlightElement = textDisplay.querySelector('.highlight');
+      if (highlightElement) {
+        const highlightRect = highlightElement.getBoundingClientRect();
+        const readerRect = document.getElementById('reader').getBoundingClientRect();
+
+        // Position below the highlight, accounting for scroll position
+        const reader = document.getElementById('reader');
+        tooltip.style.top = (highlightRect.bottom - readerRect.top + reader.scrollTop + 5) + 'px';
+      }
+    });
   } else {
     textDisplay.textContent = currentText;
     tooltip.classList.add('hidden');

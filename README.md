@@ -17,7 +17,7 @@ Inspired by [Pleco](https://www.pleco.com)'s clipboard reader.
     - "Read Clipboard" button to load text from system clipboard (doesn't always work)
 - Reader
     - Read-only block of loaded text
-    - Tooltip for selection
+    - Floating tooltip for selection
 - Bottom bar
     - Navigation buttons (described below)
 
